@@ -14,7 +14,9 @@ from typing import Sequence, NamedTuple, Any
 from flax.training.train_state import TrainState
 import distrax
 import smax
-from smax.wrappers.smaxbaselines import LogWrapper
+import hydra
+from omegaconf import DictConfig
+from smax.wrappers.smaxbaselines import SMAXLogWrapper
 import matplotlib.pyplot as plt
 
 class Actor(nn.Module):
@@ -96,7 +98,7 @@ def make_train(config):
         config["NUM_ACTORS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
     )
     
-    env = LogWrapper(env)
+    env = SMAXLogWrapper(env)
     
     def linear_schedule(count):
         frac = 1.0 - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"])) / config["NUM_UPDATES"]
@@ -109,7 +111,8 @@ def make_train(config):
         critic_network = Critic(activation=config["ACTIVATION"])
         rng, _rng_a, _rng_c = jax.random.split(rng, 3)
         init_actor_x = jnp.zeros(env.observation_space(env.agents[0]).shape)
-        init_critic_x = None
+        init_critic_x = jnp.zeros((env.state_size,))
+        print('init_actor_x', init_actor_x.shape)
         actor_network_params = actor_network.init(_rng_a, init_actor_x)
         critic_network_params = critic_network.init(_rng_c, init_critic_x)
         if config["ANNEAL_LR"]:
@@ -141,6 +144,8 @@ def make_train(config):
         reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
         obsv, env_state = jax.vmap(env.reset)(reset_rng)
         
+        print('ini obs keys', obsv.keys())
+        
         # TRAIN LOOP
         def _update_step(runner_state, unused):
             # COLLECT TRAJECTORIES
@@ -150,7 +155,7 @@ def make_train(config):
                 obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
                 # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
-                
+                print('last obs keys', last_obs.keys())
                 pi = actor_network.apply(actor_train_state.params, obs_batch)
                 value = critic_network.apply(critic_train_state.params, last_obs["world_state"])
                 action = pi.sample(seed=_rng)
@@ -327,28 +332,17 @@ def make_train(config):
 
     return train
 
-if __name__ == "__main__":
-    config = {
-        "LR": 2.5e-4,
-        "NUM_ENVS": 16,
-        "NUM_STEPS": 128,
-        "TOTAL_TIMESTEPS": 5e6,
-        "UPDATE_EPOCHS": 4,
-        "NUM_MINIBATCHES": 4,
-        "GAMMA": 0.99,
-        "GAE_LAMBDA": 0.95,
-        "CLIP_EPS": 0.2,
-        "ENT_COEF": 0.01,
-        "VF_COEF": 0.5,
-        "MAX_GRAD_NORM": 0.5,
-        "ACTIVATION": "tanh",
-        "ENV_NAME": "MPE_simple_spread_v3", # Q: Do the versions correspond to internal or external?
-        "ENV_KWARGS": {},
-        "ANNEAL_LR": True,
-    }
-
-    rng = jax.random.PRNGKey(30)
-    with jax.disable_jit():
+@hydra.main(
+    version_base=None, config_path="config", config_name="mappo_homogenous_smax"
+)
+def main(config: DictConfig):
+    
+    with jax.disable_jit(config["DISABLE_JIT"]):
+        rng = jax.random.PRNGKey(config["SEED"])
+        
         train_jit = jax.jit(make_train(config))
         out = train_jit(rng)
+
+if __name__ == "__main__":
+    main()
     import pdb; pdb.set_trace()

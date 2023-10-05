@@ -25,7 +25,7 @@ from .environments import (
     InTheGrid_2p,
     HanabiGame,
     Overcooked,
-    CoinGame,
+    #CoinGame,
 )
 
 
