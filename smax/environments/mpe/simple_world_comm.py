@@ -117,7 +117,7 @@ class SimpleWorldCommMPE(SimpleMPE):
                 jnp.full((num_landmarks), 0.0),
             ]
         )
-
+        print('initial agnets', agents)
         super().__init__(
             num_agents=num_agents,
             agents=agents,
@@ -404,45 +404,46 @@ def test_policy(key, state: State):
 
 
 if __name__ == "__main__":
-    from pettingzoo.mpe import simple_world_comm_v3
+    from smax.environments.mpe import MPEVisualizer
 
-    ### Petting zoo env
-    zoo_env = simple_world_comm_v3.parallel_env(max_cycles=25, continuous_actions=True)
-    zoo_obs = zoo_env.reset()
-    actions = {agent: zoo_env.action_space(agent).sample() for agent in zoo_env.agents}
+    num_agents = 3
+    key = jax.random.PRNGKey(1)
 
-    obs_space = {agent: zoo_env.observation_space(agent) for agent in zoo_env.agents}
-    act_space = {agent: zoo_env.action_space(agent) for agent in zoo_env.agents}
-    print("obs space", obs_space, "\n act space", act_space)
-    # print('zoo obs', zoo_obs)
-    key = jax.random.PRNGKey(0)
+    env = SimpleWorldCommMPE(num_agents)
 
-    env = SimpleWorldCommMPE()
+    obs, state = env.reset(key)
 
-    key, key_r = jax.random.split(key)
-    obs, state = env.reset(key_r)
+    mock_action = jnp.array([[1.0, 1.0, 0.1, 0.1, 0.0]])
 
-    # obs = env.observation(0, state)
-    # print('obs', obs.shape, obs)
+    actions = jnp.repeat(mock_action[None], repeats=num_agents, axis=0).squeeze()
 
-    mock_action = jnp.array([[0.0, 0.0, 1.0, 0.1, 0.1, 0.0, 0.0, 0.0, 0.0]])
-    #
-    # actions = jnp.repeat(mock_action[None], repeats=env.num_agents, axis=0).squeeze()
-    # actions = {agent: mock_action for agent in env.agents}
+    actions = {agent: mock_action for agent in env.agents}
+    a = env.agents
+    #a.reverse()
+    print("a", a)
+    actions = {agent: mock_action for agent in a}
+    print("actions", actions)
+
     # env.enable_render()
 
+    state_seq = []
     print("state", state)
-    for _ in range(50):
-        key, key_a, key_s = jax.random.split(key, 3)
-        # actions = test_policy(key_a, state)
-        # actions = {agent: actions[i] for i, agent in enumerate(env.agents)}
-        # print('actions', actions)
-        # print('state', state)
-        obs, state, rew, dones, _ = env.step_env(key_s, state, actions)
+    print("action spaces", env.action_spaces)
+
+    for _ in range(25):
+        state_seq.append(state)
+        key, key_act = jax.random.split(key)
+        key_act = jax.random.split(key_act, env.num_agents)
         actions = {
-            agent: zoo_env.action_space(agent).sample() for agent in zoo_env.agents
+            agent: env.action_space(agent).sample(key_act[i])
+            for i, agent in enumerate(env.agents)
         }
-        # env.render(state)
-        print("obs", [o.shape for o in obs.values()])
-        # raise
-        # print('rew', rew)
+
+        obs, state, rew, dones, _ = env.step_env(key, state, actions)
+
+    print('env agents', env.agents)
+    
+
+    viz = MPEVisualizer(env, state_seq)
+    viz.animate("mpe2.gif", view=True)
+

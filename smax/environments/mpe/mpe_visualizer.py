@@ -66,7 +66,6 @@ class MPEVisualizer(object):
         
         if self.comm_active:
             self.comm_idx = np.where(self.env.silent == 0)[0]
-            print('comm idx', self.comm_idx)
             self.comm_artists = []
             i = 0
             for idx in self.comm_idx:
