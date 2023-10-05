@@ -286,7 +286,7 @@ def make_train(config):
                     
                     return actor_train_state, critic_train_state, total_loss
 
-                train_state, traj_batch, advantages, targets, rng = update_state
+                actor_train_state, critic_train_state, traj_batch, advantages, targets, rng = update_state
                 rng, _rng = jax.random.split(rng)
                 batch_size = config["MINIBATCH_SIZE"] * config["NUM_MINIBATCHES"]
                 assert (
@@ -306,10 +306,10 @@ def make_train(config):
                     ),
                     shuffled_batch,
                 )
-                train_state, total_loss = jax.lax.scan(
-                    _update_minbatch, train_state, minibatches
+                actor_train_state, critic_train_state, total_loss = jax.lax.scan(
+                    _update_minbatch, actor_train_state, critic_train_state, minibatches
                 )
-                update_state = (train_state, traj_batch, advantages, targets, rng)
+                update_state = (actor_train_state, critic_train_state, traj_batch, advantages, targets, rng)
                 return update_state, total_loss
 
             update_state = (actor_train_state, critic_train_state, traj_batch, advantages, targets, rng)
