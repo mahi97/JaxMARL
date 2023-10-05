@@ -180,7 +180,7 @@ def make_train(config):
                     last_obs["world_state"],
                     info,
                 )
-                runner_state = (train_state, env_state, obsv, rng)
+                runner_state = (actor_train_state, critic_train_state, env_state, obsv, rng)
                 return runner_state, transition
 
             runner_state, traj_batch = jax.lax.scan(
@@ -188,7 +188,7 @@ def make_train(config):
             )
             
             # CALCULATE ADVANTAGE
-            train_state, env_state, last_obs, rng = runner_state
+            actor_train_state, critic_train_state, env_state, last_obs, rng = runner_state
             #last_obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
             last_val = critic_network.apply(train_state.params, last_obs["world_state"])
 
@@ -312,15 +312,15 @@ def make_train(config):
                 update_state = (train_state, traj_batch, advantages, targets, rng)
                 return update_state, total_loss
 
-            update_state = (train_state, traj_batch, advantages, targets, rng)
+            update_state = (actor_train_state, critic_train_state, traj_batch, advantages, targets, rng)
             update_state, loss_info = jax.lax.scan(
                 _update_epoch, update_state, None, config["UPDATE_EPOCHS"]
             )
-            train_state = update_state[0]
+            actor_train_state, critic_train_state = update_state[0], update_state[1]
             metric = traj_batch.info
             rng = update_state[-1]
             
-            runner_state = (train_state, env_state, last_obs, rng)
+            runner_state = (actor_train_state, critic_train_state, env_state, last_obs, rng)
             return runner_state, metric
 
         rng, _rng = jax.random.split(rng)
