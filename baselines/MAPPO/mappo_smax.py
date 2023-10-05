@@ -190,7 +190,7 @@ def make_train(config):
             # CALCULATE ADVANTAGE
             actor_train_state, critic_train_state, env_state, last_obs, rng = runner_state
             #last_obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
-            last_val = critic_network.apply(train_state.params, last_obs["world_state"])
+            last_val = critic_network.apply(critic_train_state.params, last_obs["world_state"])
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition):
