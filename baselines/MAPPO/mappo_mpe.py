@@ -64,6 +64,8 @@ class WorldStateWrapper(MPEWrapper):
     
     def world_state_size(self):
         spaces = [self._env.observation_space(agent) for agent in self._env.agents]
+        #print('spaces', spaces, 'agents', self._env.agents)
+        #print('len', sum([space.shape[-1] for space in spaces]))
         return sum([space.shape[-1] for space in spaces])
 
 class Actor(nn.Module):
@@ -135,6 +137,17 @@ def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
     x = x.reshape((num_actors, num_envs, -1))
     return {a: x[i] for i, a in enumerate(agent_list)}
 
+def expand_and_flatten_value(x: jnp.ndarray, num_agents: int, num_actors: int):
+    x = jnp.repeat(x[None], num_agents, axis=0) 
+    return x.reshape((num_actors,), order='F')
+
+def expand_world_state(x, num_agents, num_actors):
+    x = jnp.expand_dims(x, 1)
+    #print('x', x.shape)
+    x = jnp.repeat(x, num_agents, axis=1) 
+    #print('x', x.shape)
+    return x.reshape((num_actors, -1), order='C')
+
 def make_train(config):
     env = smax.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
@@ -199,21 +212,14 @@ def make_train(config):
                 actor_train_state, critic_train_state, env_state, last_obs, rng = runner_state
 
                 obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
-                #print('obs batch', obs_batch.shape)
-                #print('world state', last_obs["world_state"].shape)
-                world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
-                world_state = jnp.repeat(world_state, env.num_agents, axis=1)  # not a massive fan of this approach
-                #print('world state', world_state.shape)
-                world_state = world_state.reshape((config["NUM_ACTORS"],-1), order='C')
-                #print('world state', world_state.shape)
+                
                 # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
-                #print('last obs keys', last_obs.keys())
                 pi = actor_network.apply(actor_train_state.params, obs_batch)
                 
-                value = critic_network.apply(critic_train_state.params, world_state)
-                #value = jnp.repeat(value[None], env.num_agents, axis=0)  # not a massive fan of this approach
-                #value = value.reshape((config["NUM_ACTORS"],), order='F')
+                value = critic_network.apply(critic_train_state.params, last_obs["world_state"])
+                value = expand_and_flatten_value(value, env.num_agents, config["NUM_ACTORS"])
+                
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
                 env_act = unbatchify(action, env.agents, config["NUM_ENVS"], env.num_agents)
@@ -233,7 +239,7 @@ def make_train(config):
                     batchify(reward, env.agents, config["NUM_ACTORS"]).squeeze(),
                     log_prob,
                     obs_batch,
-                    world_state,
+                    expand_world_state(last_obs["world_state"], env.num_agents, config["NUM_ACTORS"]),
                     info,
                 )
                 runner_state = (actor_train_state, critic_train_state, env_state, obsv, rng)
@@ -245,14 +251,9 @@ def make_train(config):
             
             # CALCULATE ADVANTAGE
             actor_train_state, critic_train_state, env_state, last_obs, rng = runner_state
-            #last_obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
-            last_world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
-            last_world_state = jnp.repeat(last_world_state, env.num_agents, axis=1)  # not a massive fan of this approach
-            #print('world state', last_world_state.shape)
-            last_world_state = last_world_state.reshape((config["NUM_ACTORS"],-1), order='C')
-            last_val = critic_network.apply(critic_train_state.params, last_world_state)
+            last_val = critic_network.apply(critic_train_state.params, last_obs["world_state"])
+            last_val = expand_and_flatten_value(last_val, env.num_agents, config["NUM_ACTORS"])
             
-
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition):
                     gae, next_value = gae_and_next_value
@@ -261,7 +262,7 @@ def make_train(config):
                         transition.value,
                         transition.reward,
                     )
-                    #print('reward ', reward.shape, next_value.shape, done.shape, value.shape)
+                    
                     delta = reward + config["GAMMA"] * next_value * (1 - done) - value
                     gae = (
                         delta
@@ -399,7 +400,7 @@ def make_train(config):
     return train
 
 @hydra.main(
-    version_base=None, config_path="config", config_name="mappo_homogenous_smax"
+    version_base=None, config_path="config", config_name="mappo_homogenous_mpe_spread"
 )
 def main(config: DictConfig):
     
