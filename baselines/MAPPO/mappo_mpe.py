@@ -19,6 +19,7 @@ import hydra
 from omegaconf import DictConfig
 from smax.wrappers.smaxbaselines import SMAXLogWrapper
 import matplotlib.pyplot as plt
+from functools import partial
 
 class MPEWrapper(object):
     """Base class for all SMAX wrappers."""
@@ -28,25 +29,42 @@ class MPEWrapper(object):
 
     def __getattr__(self, name: str):
         return getattr(self._env, name)
+    
 
     # def _batchify(self, x: dict):
     #     x = jnp.stack([x[a] for a in self._env.agents])
     #     return x.reshape((self._env.num_agents, -1))
-
-    def _batchify_floats(self, x: dict):
-        return jnp.stack([x[a] for a in self._env.agents])    
+    
+    
+       
     
 class WorldStateWrapper(MPEWrapper):
     
+    @partial(jax.jit, static_argnums=0)
+    def reset(self,
+              key):
+        obs, env_state = self._env.reset(key)
+        obs["world_state"] = self.world_state(obs)
+        return obs, env_state
+    
+    @partial(jax.jit, static_argnums=0)
     def step(self,
              key,
              state,
              action):
         obs, env_state, reward, done, info = self._env.step(
-            key, state.env_state, action
+            key, state, action
         )
-        all_obs = obs
+        obs["world_state"] = self.world_state(obs)
+        return obs, env_state, reward, done, info
 
+    @partial(jax.jit, static_argnums=0)
+    def world_state(self, obs):
+        return jnp.concatenate([obs[agent] for agent in self._env.agents], axis=-1)
+    
+    def world_state_size(self):
+        spaces = [self._env.observation_space(agent) for agent in self._env.agents]
+        return sum([space.shape[-1] for space in spaces])
 
 class Actor(nn.Module):
     action_dim: Sequence[int]
@@ -128,6 +146,7 @@ def make_train(config):
     )
     
     env = SMAXLogWrapper(env)
+    env = WorldStateWrapper(env)
     
     def linear_schedule(count):
         frac = 1.0 - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"])) / config["NUM_UPDATES"]
@@ -140,7 +159,8 @@ def make_train(config):
         critic_network = Critic(activation=config["ACTIVATION"])
         rng, _rng_a, _rng_c = jax.random.split(rng, 3)
         init_actor_x = jnp.zeros(env.observation_space(env.agents[0]).shape)
-        init_critic_x = jnp.zeros((env.state_size,))
+        init_critic_x = jnp.zeros((env.world_state_size(),))
+        
         actor_network_params = actor_network.init(_rng_a, init_actor_x)
         critic_network_params = critic_network.init(_rng_c, init_critic_x)
         if config["ANNEAL_LR"]:
@@ -393,7 +413,7 @@ def main(config: DictConfig):
         plt.plot(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
         plt.xlabel("Update Step")
         plt.ylabel("Return")
-        plt.savefig(f'mappo_out.png')
+        plt.savefig(f'mpe_mappo_out.png')
 
 if __name__ == "__main__":
     main()
