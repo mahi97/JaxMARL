@@ -14,10 +14,39 @@ from typing import Sequence, NamedTuple, Any
 from flax.training.train_state import TrainState
 import distrax
 import smax
+from smax.environments import MultiAgentEnv
 import hydra
 from omegaconf import DictConfig
 from smax.wrappers.smaxbaselines import SMAXLogWrapper
 import matplotlib.pyplot as plt
+
+class MPEWrapper(object):
+    """Base class for all SMAX wrappers."""
+
+    def __init__(self, env: MultiAgentEnv):
+        self._env = env
+
+    def __getattr__(self, name: str):
+        return getattr(self._env, name)
+
+    # def _batchify(self, x: dict):
+    #     x = jnp.stack([x[a] for a in self._env.agents])
+    #     return x.reshape((self._env.num_agents, -1))
+
+    def _batchify_floats(self, x: dict):
+        return jnp.stack([x[a] for a in self._env.agents])    
+    
+class WorldStateWrapper(MPEWrapper):
+    
+    def step(self,
+             key,
+             state,
+             action):
+        obs, env_state, reward, done, info = self._env.step(
+            key, state.env_state, action
+        )
+        all_obs = obs
+
 
 class Actor(nn.Module):
     action_dim: Sequence[int]
