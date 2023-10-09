@@ -1,0 +1,29 @@
+2023-10-09 15:22:08,514 INFO    MainThread:412838 [wandb_setup.py:_flush():76] Current SDK version is 0.15.4
+2023-10-09 15:22:08,515 INFO    MainThread:412838 [wandb_setup.py:_flush():76] Configure stats pid to 412838
+2023-10-09 15:22:08,515 INFO    MainThread:412838 [wandb_setup.py:_flush():76] Loading settings from /home/alex/.config/wandb/settings
+2023-10-09 15:22:08,515 INFO    MainThread:412838 [wandb_setup.py:_flush():76] Loading settings from /home/alex/repos/SMAX/baselines/MAPPO/wandb/settings
+2023-10-09 15:22:08,515 INFO    MainThread:412838 [wandb_setup.py:_flush():76] Loading settings from environment variables: {}
+2023-10-09 15:22:08,515 INFO    MainThread:412838 [wandb_setup.py:_flush():76] Applying setup settings: {'_disable_service': False}
+2023-10-09 15:22:08,515 INFO    MainThread:412838 [wandb_setup.py:_flush():76] Inferring run settings from compute environment: {'program_relpath': 'baselines/MAPPO/mappo_mpe_rnn.py', 'program': 'mappo_mpe_rnn.py'}
+2023-10-09 15:22:08,515 INFO    MainThread:412838 [wandb_init.py:_log_setup():507] Logging user logs to /home/alex/repos/SMAX/baselines/MAPPO/wandb/run-20231009_152208-uz1n6gtu/logs/debug.log
+2023-10-09 15:22:08,516 INFO    MainThread:412838 [wandb_init.py:_log_setup():508] Logging internal logs to /home/alex/repos/SMAX/baselines/MAPPO/wandb/run-20231009_152208-uz1n6gtu/logs/debug-internal.log
+2023-10-09 15:22:08,516 INFO    MainThread:412838 [wandb_init.py:init():547] calling init triggers
+2023-10-09 15:22:08,516 INFO    MainThread:412838 [wandb_init.py:init():554] wandb.init called with sweep_config: {}
+config: {'LR': 1e-05, 'NUM_ENVS': 64, 'NUM_STEPS': 128, 'TOTAL_TIMESTEPS': 10000000.0, 'UPDATE_EPOCHS': 4, 'NUM_MINIBATCHES': 4, 'GAMMA': 0.99, 'GAE_LAMBDA': 0.95, 'CLIP_EPS': 0.04, 'ENT_COEF': 0.0, 'VF_COEF': 0.5, 'MAX_GRAD_NORM': 10.0, 'ACTIVATION': 'relu', 'ENV_NAME': 'MPE_simple_spread_v3', 'SEED': 30, 'ENV_KWARGS': {}, 'DISABLE_JIT': False, 'WANDB_MODE': 'online', 'ANNEAL_LR': True, 'ENTITY': 'amacrutherford', 'PROJECT': 'mpe-rnn'}
+2023-10-09 15:22:08,516 INFO    MainThread:412838 [wandb_init.py:init():596] starting backend
+2023-10-09 15:22:08,516 INFO    MainThread:412838 [wandb_init.py:init():600] setting up manager
+2023-10-09 15:22:08,526 INFO    MainThread:412838 [backend.py:_multiprocessing_setup():106] multiprocessing start_methods=fork,spawn,forkserver, using: spawn
+2023-10-09 15:22:08,533 INFO    MainThread:412838 [wandb_init.py:init():606] backend started and connected
+2023-10-09 15:22:08,539 INFO    MainThread:412838 [wandb_init.py:init():703] updated telemetry
+2023-10-09 15:22:08,596 INFO    MainThread:412838 [wandb_init.py:init():736] communicating run to backend with 60.0 second timeout
+2023-10-09 15:22:09,555 INFO    MainThread:412838 [wandb_run.py:_on_init():2176] communicating current version
+2023-10-09 15:22:09,627 INFO    MainThread:412838 [wandb_run.py:_on_init():2185] got version response upgrade_message: "wandb version 0.15.12 is available!  To upgrade, please run:\n $ pip install wandb --upgrade"
+
+2023-10-09 15:22:09,628 INFO    MainThread:412838 [wandb_init.py:init():787] starting run threads in backend
+2023-10-09 15:22:14,123 INFO    MainThread:412838 [wandb_run.py:_console_start():2155] atexit reg
+2023-10-09 15:22:14,123 INFO    MainThread:412838 [wandb_run.py:_redirect():2010] redirect: SettingsConsole.WRAP_RAW
+2023-10-09 15:22:14,124 INFO    MainThread:412838 [wandb_run.py:_redirect():2075] Wrapping output streams.
+2023-10-09 15:22:14,124 INFO    MainThread:412838 [wandb_run.py:_redirect():2100] Redirects installed.
+2023-10-09 15:22:14,126 INFO    MainThread:412838 [wandb_init.py:init():828] run started, returning control to user process
+2023-10-09 15:28:03,454 INFO    MainThread:412838 [wandb_run.py:_config_callback():1283] config_cb ('_wandb', 'visualize', 'returns_plot') {'panel_type': 'Vega2', 'panel_config': {'panelDefId': 'wandb/line/v0', 'fieldSettings': {'x': 'updates', 'y': 'returns', 'stroke': None}, 'stringSettings': {'title': 'returns_vs_updates'}, 'transform': {'name': 'tableWithLeafColNames'}, 'userQuery': {'queryFields': [{'name': 'runSets', 'args': [{'name': 'runSets', 'value': '${runSets}'}], 'fields': [{'name': 'id', 'fields': []}, {'name': 'name', 'fields': []}, {'name': '_defaultColorIndex', 'fields': []}, {'name': 'summaryTable', 'args': [{'name': 'tableKey', 'value': 'returns_plot_table'}], 'fields': []}]}]}}} None
+2023-10-09 15:28:10,640 WARNING MsgRouterThr:412838 [router.py:message_loop():77] message_loop has been closed

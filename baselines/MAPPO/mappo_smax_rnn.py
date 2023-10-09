@@ -473,7 +473,7 @@ def main(config):
     wandb.init(
         entity=config["ENTITY"],
         project=config["PROJECT"],
-        tags=["IPPO", "RNN"],
+        tags=["MAPPO", "RNN"],
         config=config,
         mode=config["WANDB_MODE"],
     )

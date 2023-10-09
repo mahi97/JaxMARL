@@ -1,0 +1,249 @@
+{
+    "os": "Linux-5.15.0-1042-oracle-x86_64-with-glibc2.17",
+    "python": "3.8.16",
+    "heartbeatAt": "2023-10-09T14:22:09.809668",
+    "startedAt": "2023-10-09T14:22:08.510794",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "mappo_mpe_rnn.py",
+    "codePath": "baselines/MAPPO/mappo_mpe_rnn.py",
+    "git": {
+        "remote": "git@github.com:FLAIROx/SMAX.git",
+        "commit": "e24569d1d6b08d1c3534c1f778bfbe401ccb1745"
+    },
+    "email": "amacrutherford@gmail.com",
+    "root": "/home/alex/repos/SMAX",
+    "host": "parsifal",
+    "username": "alex",
+    "executable": "/home/alex/anaconda3/envs/smax/bin/python",
+    "cpu_count": 20,
+    "cpu_count_logical": 40,
+    "cpu_freq": {
+        "current": 2.2637999999999985,
+        "min": 800.0,
+        "max": 3400.0
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 0.8,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 0.8,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        },
+        {
+            "current": 2.3,
+            "min": 800.0,
+            "max": 3400.0
+        }
+    ],
+    "disk": {
+        "total": 1830.3284606933594,
+        "used": 315.8085594177246
+    },
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "gpu_count": 2,
+    "gpu_devices": [
+        {
+            "name": "NVIDIA GeForce RTX 4090",
+            "memory_total": 25757220864
+        },
+        {
+            "name": "NVIDIA GeForce RTX 4090",
+            "memory_total": 25757220864
+        }
+    ],
+    "memory": {
+        "total": 125.40717697143555
+    }
+}

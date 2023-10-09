@@ -1,0 +1,123 @@
+wandb_version: 1
+
+LR:
+  desc: null
+  value: 1.0e-05
+NUM_ENVS:
+  desc: null
+  value: 64
+NUM_STEPS:
+  desc: null
+  value: 128
+TOTAL_TIMESTEPS:
+  desc: null
+  value: 10000000.0
+UPDATE_EPOCHS:
+  desc: null
+  value: 4
+NUM_MINIBATCHES:
+  desc: null
+  value: 4
+GAMMA:
+  desc: null
+  value: 0.99
+GAE_LAMBDA:
+  desc: null
+  value: 0.95
+CLIP_EPS:
+  desc: null
+  value: 0.04
+ENT_COEF:
+  desc: null
+  value: 0.0
+VF_COEF:
+  desc: null
+  value: 0.5
+MAX_GRAD_NORM:
+  desc: null
+  value: 10.0
+ACTIVATION:
+  desc: null
+  value: relu
+ENV_NAME:
+  desc: null
+  value: MPE_simple_spread_v3
+SEED:
+  desc: null
+  value: 30
+ENV_KWARGS:
+  desc: null
+  value: {}
+DISABLE_JIT:
+  desc: null
+  value: false
+WANDB_MODE:
+  desc: null
+  value: online
+ANNEAL_LR:
+  desc: null
+  value: true
+ENTITY:
+  desc: null
+  value: amacrutherford
+PROJECT:
+  desc: null
+  value: mpe-rnn
+_wandb:
+  desc: null
+  value:
+    python_version: 3.8.16
+    cli_version: 0.15.4
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    start_time: 1696861328.533382
+    t:
+      1:
+      - 12
+      - 45
+      - 50
+      - 55
+      2:
+      - 12
+      - 45
+      - 50
+      - 55
+      3:
+      - 15
+      - 16
+      - 23
+      4: 3.8.16
+      5: 0.15.4
+      8:
+      - 5
+    visualize:
+      returns_plot:
+        panel_type: Vega2
+        panel_config:
+          panelDefId: wandb/line/v0
+          fieldSettings:
+            x: updates
+            y: returns
+            stroke: null
+          stringSettings:
+            title: returns_vs_updates
+          transform:
+            name: tableWithLeafColNames
+          userQuery:
+            queryFields:
+            - name: runSets
+              args:
+              - name: runSets
+                value: ${runSets}
+              fields:
+              - name: id
+                fields: []
+              - name: name
+                fields: []
+              - name: _defaultColorIndex
+                fields: []
+              - name: summaryTable
+                args:
+                - name: tableKey
+                  value: returns_plot_table
+                fields: []

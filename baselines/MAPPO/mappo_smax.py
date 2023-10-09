@@ -1,7 +1,9 @@
 """ 
 Based on PureJaxRL Implementation of PPO
 
-NOTE: currently implemented using the gymnax to smax wrapper
+TODO: 
+ - currently uses a concatenation of the world state and the agent observation as the input to the critic. This should be prunded as per the MAPPO paper
+ - normalised returns
 """
 
 import jax
@@ -94,6 +96,7 @@ def make_train(config):
     config["NUM_UPDATES"] = (
         config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ACTORS"]  # Q: NUM_ACTORS CORRECT?
     )
+    #print('num updates', config["NUM_UPDATES"])
     config["MINIBATCH_SIZE"] = (
         config["NUM_ACTORS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
     )
@@ -111,7 +114,8 @@ def make_train(config):
         critic_network = Critic(activation=config["ACTIVATION"])
         rng, _rng_a, _rng_c = jax.random.split(rng, 3)
         init_actor_x = jnp.zeros(env.observation_space(env.agents[0]).shape)
-        init_critic_x = jnp.zeros((env.state_size,))
+        init_critic_x = jnp.zeros((env.state_size,)) # env.observation_space(env.agents[0]).shape[0] + 
+        print('critic init', init_critic_x.shape)
         actor_network_params = actor_network.init(_rng_a, init_actor_x)
         critic_network_params = critic_network.init(_rng_c, init_critic_x)
         if config["ANNEAL_LR"]:
@@ -150,21 +154,16 @@ def make_train(config):
                 actor_train_state, critic_train_state, env_state, last_obs, rng = runner_state
 
                 obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
-                #print('obs batch', obs_batch.shape)
-                #print('world state', last_obs["world_state"].shape)
                 world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
-                world_state = jnp.repeat(world_state, env.num_agents, axis=1)  # not a massive fan of this approach
-                #print('world state', world_state.shape)
-                world_state = world_state.reshape((config["NUM_ACTORS"],-1), order='C')
-                #print('world state', world_state.shape)
+                world_state = jnp.repeat(world_state, env.num_agents, axis=1) 
+                world_state = world_state.reshape((config["NUM_ACTORS"],-1))
+                #world_state = jnp.concatenate([world_state, obs_batch], axis=-1)
                 # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
                 #print('last obs keys', last_obs.keys())
                 pi = actor_network.apply(actor_train_state.params, obs_batch)
                 
                 value = critic_network.apply(critic_train_state.params, world_state)
-                #value = jnp.repeat(value[None], env.num_agents, axis=0)  # not a massive fan of this approach
-                #value = value.reshape((config["NUM_ACTORS"],), order='F')
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
                 env_act = unbatchify(action, env.agents, config["NUM_ENVS"], env.num_agents)
@@ -196,11 +195,11 @@ def make_train(config):
             
             # CALCULATE ADVANTAGE
             actor_train_state, critic_train_state, env_state, last_obs, rng = runner_state
-            #last_obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
+            last_obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
             last_world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
-            last_world_state = jnp.repeat(last_world_state, env.num_agents, axis=1)  # not a massive fan of this approach
-            #print('world state', last_world_state.shape)
-            last_world_state = last_world_state.reshape((config["NUM_ACTORS"],-1), order='C')
+            last_world_state = jnp.repeat(last_world_state, env.num_agents, axis=1)  
+            last_world_state = last_world_state.reshape((config["NUM_ACTORS"],-1))
+            #last_world_state = jnp.concatenate([last_world_state, last_obs_batch], axis=-1)
             last_val = critic_network.apply(critic_train_state.params, last_world_state)
             
 
@@ -267,7 +266,7 @@ def make_train(config):
                     def _critic_loss_fn(critic_params, traj_batch, targets):
                         # RERUN NETWORK
                         value = critic_network.apply(critic_params, traj_batch.world_state)  
-                        #print('traj batch value', traj_batch.value.shape, 'value', value.shape)
+                        
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value + (
                             value - traj_batch.value
@@ -359,12 +358,18 @@ def main(config: DictConfig):
         
         train_jit = jax.jit(make_train(config))
         out = train_jit(rng)
-        print('out', out["metrics"])
+        #print('out', out["metrics"])
+        print('returned shape', out["metrics"]["returned_episode_returns"].shape)
+        mean_returns = out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1)
+        print('len returns', len(mean_returns))
+        x = np.arange(len(mean_returns)) * config["NUM_ACTORS"]
         
-        plt.plot(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
-        plt.xlabel("Update Step")
+        
+        plt.plot(x, mean_returns)
+        plt.title(f"MAPPO Mean Return SMAX {config['MAP_NAME']}")
+        plt.xlabel("Timestep")
         plt.ylabel("Return")
-        plt.savefig(f'mappo_out.png')
+        plt.savefig(f'mappo_smax_ret.png')
 
 if __name__ == "__main__":
     main()
