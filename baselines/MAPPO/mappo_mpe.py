@@ -114,16 +114,25 @@ class WorldStateWrapper(MPEWrapper):
 
     @partial(jax.jit, static_argnums=0)
     def world_state(self, obs):
-        return jnp.concatenate([obs[agent] for agent in self._env.agents], axis=-1)
-    
-    #@partial(jax.jit, static_argnums=0)
-    #def world_reward(self, reward):
-    #    return jnp.sum([reward[a] for a in self._env.agents])
+        """ 
+        For each agent: [agent obs, all other agent obs]
+        """
+        
+        @partial(jax.vmap, in_axes=(0, None))
+        def _roll_obs(aidx, all_obs):
+            #r = self._env.num_agents - aidx
+            robs = jnp.roll(all_obs, -aidx, axis=0)
+            robs = robs.flatten()
+            return robs
+            
+        all_obs = jnp.array([obs[agent] for agent in self._env.agents])
+        
+        return _roll_obs(jnp.arange(self._env.num_agents), all_obs)
+        
     
     def world_state_size(self):
         spaces = [self._env.observation_space(agent) for agent in self._env.agents]
-        #print('spaces', spaces, 'agents', self._env.agents)
-        #print('len', sum([space.shape[-1] for space in spaces]))
+        
         return sum([space.shape[-1] for space in spaces])
 
 class Actor(nn.Module):
@@ -275,9 +284,8 @@ def make_train(config):
                 rng, _rng = jax.random.split(rng)
                 pi = actor_network.apply(actor_train_state.params, obs_batch)
                 
-                value = critic_network.apply(critic_train_state.params, last_obs["world_state"])
-                value = expand_and_flatten_value(value, env.num_agents, config["NUM_ACTORS"])
-                
+                value = critic_network.apply(critic_train_state.params, last_obs["world_state"])                
+                #print('value shape', value.shape)
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
                 env_act = unbatchify(action, env.agents, config["NUM_ENVS"], env.num_agents)
@@ -293,11 +301,11 @@ def make_train(config):
                 transition = Transition(
                     batchify(done, env.agents, config["NUM_ACTORS"]).squeeze(),
                     action,
-                    value,
+                    value.reshape((config["NUM_ACTORS"], -1)).squeeze(),
                     batchify(reward, env.agents, config["NUM_ACTORS"]).squeeze(),
                     log_prob,
                     obs_batch,
-                    expand_world_state(last_obs["world_state"], env.num_agents, config["NUM_ACTORS"]),
+                    last_obs["world_state"].reshape((config["NUM_ACTORS"], -1)),
                     info,
                 )
                 runner_state = (actor_train_state, critic_train_state, env_state, obsv, rng)
@@ -309,8 +317,9 @@ def make_train(config):
             
             # CALCULATE ADVANTAGE
             actor_train_state, critic_train_state, env_state, last_obs, rng = runner_state
-            last_val = critic_network.apply(critic_train_state.params, last_obs["world_state"])
-            last_val = expand_and_flatten_value(last_val, env.num_agents, config["NUM_ACTORS"])
+            last_val = critic_network.apply(critic_train_state.params, last_obs["world_state"]).reshape((config["NUM_ACTORS"], -1)).squeeze()
+            #print('last val', last_val.shape)
+            
             
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition):
@@ -320,6 +329,7 @@ def make_train(config):
                         transition.value,
                         transition.reward,
                     )
+                    #print('value', value.shape, 'reward', reward.shape, 'done', done.shape, 'next value', next_value.shape)
                     
                     delta = reward + config["GAMMA"] * next_value * (1 - done) - value
                     gae = (
@@ -347,6 +357,7 @@ def make_train(config):
 
                     def _actor_loss_fn(actor_params, traj_batch, gae):
                         # RERUN NETWORK
+                        #print('actor obs', traj_batch.obs.shape)
                         pi = actor_network.apply(actor_params, traj_batch.obs)
                         log_prob = pi.log_prob(traj_batch.action)
 
@@ -375,7 +386,6 @@ def make_train(config):
                     def _critic_loss_fn(critic_params, traj_batch, targets):
                         # RERUN NETWORK
                         value = critic_network.apply(critic_params, traj_batch.world_state)  
-                        #print('traj batch value', traj_batch.value.shape, 'value', value.shape)
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value + (
                             value - traj_batch.value
@@ -469,11 +479,13 @@ def main(config: DictConfig):
         out = train_jit(rng)
         print('out', out["metrics"])
         
-        print(out["metrics"]["returned_episode_returns"].shape)
-        plt.plot(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
-        plt.xlabel("Update Step")
+        #print(out["metrics"]["returned_episode_returns"].shape)
+        mean_returns = out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1)
+        x = np.arange(len(mean_returns)) * config["NUM_ACTORS"]
+        plt.plot(x, mean_returns)
+        plt.xlabel("Timestep")
         plt.ylabel("Return")
-        plt.savefig(f'mpe_mappo_out.png')
+        plt.savefig(f'mpe_mappo_ret.png')
 
 if __name__ == "__main__":
     main()

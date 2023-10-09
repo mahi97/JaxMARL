@@ -38,7 +38,7 @@ class Actor(nn.Module):
     action_dim: Sequence[int]
 
     @nn.compact
-    def __call__(self, observation: Observation) -> distrax.Categorical:
+    def __call__(self, observation) -> distrax.Categorical:
         """Forward pass."""
         x = observation.agents_view
 
