@@ -3,8 +3,6 @@ Based on PureJaxRL Implementation of PPO
 
 doing homogenous first with continuous actions. Also terminate synchronously
 
-NOTE: currently implemented using the gymnax to smax wrapper
-
 jax 4.7
 flax 0.7.4
 
@@ -96,8 +94,14 @@ class Critic(nn.Module):
     
     @nn.compact
     def __call__(self, x):
+        obs, dones, avail_actions = x
+        embedding = nn.Dense(
+            128, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+        )(obs)
+        embedding = nn.relu(embedding)
+        
         critic = nn.Dense(128, kernel_init=orthogonal(2), bias_init=constant(0.0))(
-            x
+            embedding
         )
         critic = nn.relu(critic)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
@@ -166,7 +170,7 @@ def make_train(config):
         init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], 128)
         actor_network_params = actor_network.init(_rng_actor, init_hstate, init_x)
         
-        init_x = jnp.zeros((env.state_size,))
+        #init_x = jnp.zeros((env.state_size,))
         critic_network_params = critic_network.init(_rng_critic, init_x)
         
         if config["ANNEAL_LR"]:
@@ -231,10 +235,10 @@ def make_train(config):
                 env_act = {k: v.squeeze() for k, v in env_act.items()}
 
                 # VALUE
-                world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
-                world_state = jnp.repeat(world_state, env.num_agents, axis=1) 
-                world_state = world_state.reshape((config["NUM_ACTORS"],-1))
-                value = critic_network.apply(train_states[1].params, world_state)
+                #world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
+                #world_state = jnp.repeat(world_state, env.num_agents, axis=1) 
+                #world_state = world_state.reshape((config["NUM_ACTORS"],-1))
+                value = critic_network.apply(train_states[1].params, ac_in)
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
@@ -252,7 +256,7 @@ def make_train(config):
                     batchify(reward, env.agents, config["NUM_ACTORS"]).squeeze(),
                     log_prob.squeeze(),
                     obs_batch,
-                    world_state,
+                    jnp.zeros((1,)),
                     info,
                     avail_actions,
                 )
@@ -270,17 +274,17 @@ def make_train(config):
             avail_actions = jnp.ones(
                 (config["NUM_ACTORS"], env.action_space(env.agents[0]).n)
             )
-            '''ac_in = (
+            ac_in = (
                 last_obs_batch[np.newaxis, :],
                 last_done[np.newaxis, :],
                 avail_actions,
             )
-            _, _, last_val = network.apply(train_state.params, hstate, ac_in)
+            '''_, _, last_val = network.apply(train_state.params, hstate, ac_in)
             last_val = last_val.squeeze()'''
-            last_world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
-            last_world_state = jnp.repeat(last_world_state, env.num_agents, axis=1)  
-            last_world_state = last_world_state.reshape((config["NUM_ACTORS"],-1))
-            last_val = critic_network.apply(train_states[1].params, last_world_state).squeeze()
+            #last_world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
+            #last_world_state = jnp.repeat(last_world_state, env.num_agents, axis=1)  
+            #last_world_state = last_world_state.reshape((config["NUM_ACTORS"],-1))
+            last_val = critic_network.apply(train_states[1].params, ac_in).squeeze()
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition):
@@ -348,7 +352,7 @@ def make_train(config):
                     
                     def _critic_loss_fn(critic_params, traj_batch, targets):
                         # RERUN NETWORK
-                        value = critic_network.apply(critic_params, traj_batch.world_state) 
+                        value = critic_network.apply(critic_params, (traj_batch.obs, traj_batch.done, traj_batch.avail_actions)) 
                         
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value + (
@@ -478,8 +482,9 @@ def main(config):
         mode=config["WANDB_MODE"],
     )
     rng = jax.random.PRNGKey(config["SEED"])
-    train_jit = jax.jit(make_train(config), device=jax.devices()[0])
-    out = train_jit(rng)
+    with jax.disable_jit(config["DISABLE_JIT"]):
+        train_jit = jax.jit(make_train(config), device=jax.devices()[config["DEVICE"]])
+        out = train_jit(rng)
     updates_x = jnp.arange(out["metrics"]["returned_episode_returns"].shape[0])
     returns_table = jnp.stack([updates_x, out["metrics"]["returned_episode_returns"]], axis=1)
     returns_table = wandb.Table(data=returns_table.tolist(), columns=["updates", "returns"])
