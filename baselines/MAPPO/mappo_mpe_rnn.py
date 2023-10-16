@@ -1,9 +1,7 @@
 """
-Based on PureJaxRL Implementation of PPO
+Based on PureJaxRL Implementation of IPPO, with changes to give a centralised critic.
 
-doing homogenous first with continuous actions. Also terminate synchronously
-
-NOTE: currently implemented using the gymnax to smax wrapper
+Doing homogenous first with continuous actions. Also terminate synchronously
 
 jax 4.7
 flax 0.7.4
@@ -13,22 +11,138 @@ flax 0.7.4
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
+from flax import struct
 import numpy as np
 import optax
 from flax.linen.initializers import constant, orthogonal
-from typing import Sequence, NamedTuple, Any, Dict
+from typing import Sequence, NamedTuple, Any, Tuple, Union, Dict
+import chex
+
 from flax.training.train_state import TrainState
 import distrax
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from smax import make
+from functools import partial
+import smax
+# from smax.wrappers.smaxbaselines import LogWrapper
+from smax.environments.multi_agent_env import MultiAgentEnv, State
 
-from baselines.MAPPO.mpe_utils import MPELogWrapper, WorldStateWrapper
 
+# from smax.wrappers.gymnax import GymnaxToSMAX
 import wandb
 import functools
 import matplotlib.pyplot as plt
 
+class MPEWrapper(object):
+    """Base class for all SMAX wrappers."""
+
+    def __init__(self, env: MultiAgentEnv):
+        self._env = env
+
+    def __getattr__(self, name: str):
+        return getattr(self._env, name)
+    
+    def _batchify_floats(self, x: dict):
+        return jnp.stack([x[a] for a in self._env.agents])
+    
+    
+@struct.dataclass
+class MPELogEnvState:
+    env_state: State
+    episode_returns: float
+    episode_lengths: int
+    returned_episode_returns: float
+    total_episodes: int
+
+
+class MPELogWrapper(MPEWrapper):
+    def __init__(self, env: MultiAgentEnv, replace_info: bool = False):
+        super().__init__(env)
+        self.replace_info = replace_info
+
+    @partial(jax.jit, static_argnums=(0,))
+    def reset(self, key: chex.PRNGKey) -> Tuple[chex.Array, State]:
+        obs, env_state = self._env.reset(key)
+        state = MPELogEnvState(
+            env_state,
+            jnp.zeros((self._env.num_agents,)),
+            jnp.zeros((self._env.num_agents,)),
+            jnp.zeros((self._env.num_agents,)),
+            total_episodes=jnp.zeros((self._env.num_agents,)),
+        )
+        return obs, state
+
+    @partial(jax.jit, static_argnums=(0,))
+    def step(
+        self,
+        key: chex.PRNGKey,
+        state: MPELogEnvState,
+        action: Union[int, float],
+    ) -> Tuple[chex.Array, MPELogEnvState, float, bool, dict]:
+        obs, env_state, reward, done, info = self._env.step(
+            key, state.env_state, action
+        )
+        ep_done = done["__all__"]
+        #batch_reward = self._batchify_floats(reward)
+        #print('batch reward', batch_reward.shape)
+        new_episode_return = state.episode_returns + jnp.sum(self._batchify_floats(reward))  # NOTE this is wrong
+        new_episode_length = state.episode_lengths + 1
+        state = MPELogEnvState(
+            env_state=env_state,
+            episode_returns=new_episode_return * (1 - ep_done),
+            episode_lengths=new_episode_length * (1 - ep_done),
+            returned_episode_returns=state.returned_episode_returns * (1 - ep_done)
+            + new_episode_return * ep_done,
+            total_episodes=state.total_episodes + (ep_done).astype(jnp.int32),
+        )
+        if self.replace_info:
+            info = {}
+        info["returned_episode_returns"] = state.returned_episode_returns
+        info["returned_episode"] = jnp.full((self._env.num_agents,), ep_done)
+        return obs, state, reward, done, info
+    
+class WorldStateWrapper(MPEWrapper):
+    
+    @partial(jax.jit, static_argnums=0)
+    def reset(self,
+              key):
+        obs, env_state = self._env.reset(key)
+        obs["world_state"] = self.world_state(obs)
+        return obs, env_state
+    
+    @partial(jax.jit, static_argnums=0)
+    def step(self,
+             key,
+             state,
+             action):
+        obs, env_state, reward, done, info = self._env.step(
+            key, state, action
+        )
+        obs["world_state"] = self.world_state(obs)
+        #reward["world_reward"] = self.world_reward(reward)
+        return obs, env_state, reward, done, info
+
+    @partial(jax.jit, static_argnums=0)
+    def world_state(self, obs):
+        """ 
+        For each agent: [agent obs, all other agent obs]
+        """
+        
+        @partial(jax.vmap, in_axes=(0, None))
+        def _roll_obs(aidx, all_obs):
+            #r = self._env.num_agents - aidx
+            robs = jnp.roll(all_obs, -aidx, axis=0)
+            robs = robs.flatten()
+            return robs
+            
+        all_obs = jnp.array([obs[agent] for agent in self._env.agents])
+        return all_obs
+        #return _roll_obs(jnp.arange(self._env.num_agents), all_obs)
+    
+    def world_state_size(self):
+        spaces = [self._env.observation_space(agent) for agent in self._env.agents]
+        return spaces[0].shape[-1]
+        #return sum([space.shape[-1] for space in spaces])
 
 class ScannedRNN(nn.Module):
     @functools.partial(
@@ -64,7 +178,7 @@ class ActorRNN(nn.Module):
 
     @nn.compact
     def __call__(self, hidden, x):
-        obs, dones, avail_actions = x
+        obs, dones = x
         embedding = nn.Dense(
             128, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
         )(obs)
@@ -77,15 +191,11 @@ class ActorRNN(nn.Module):
             embedding
         )
         actor_mean = nn.relu(actor_mean)
-        actor_mean = nn.Dense(
+        action_logits = nn.Dense(
             self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
         )(actor_mean)
-        unavail_actions = 1 - avail_actions
-        action_logits = actor_mean - (unavail_actions * 1e10)
 
         pi = distrax.Categorical(logits=action_logits)
-
-        
 
         return hidden, pi
 
@@ -94,6 +204,12 @@ class Critic(nn.Module):
     
     @nn.compact
     def __call__(self, x):
+        '''obs, dones, avail_actions = x
+        embedding = nn.Dense(
+            128, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+        )(obs)
+        embedding = nn.relu(embedding)'''
+        
         critic = nn.Dense(128, kernel_init=orthogonal(2), bias_init=constant(0.0))(
             x
         )
@@ -114,7 +230,6 @@ class Transition(NamedTuple):
     obs: jnp.ndarray
     world_state: jnp.ndarray
     info: jnp.ndarray
-    avail_actions: jnp.ndarray
 
 
 def batchify(x: dict, agent_list, num_actors):
@@ -130,7 +245,7 @@ def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
 def make_train(config):
     # env, env_params = smax.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     # env = GymnaxToSMAX(config["ENV_NAME"], **config["ENV_KWARGS"])
-    env = make(config["ENV_NAME"], **config["ENV_KWARGS"])
+    env = smax.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (
         config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
@@ -138,6 +253,7 @@ def make_train(config):
     config["MINIBATCH_SIZE"] = (
         config["NUM_ACTORS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
     )
+    config["CLIP_EPS"] = config["CLIP_EPS"] / env.num_agents if config["SCALE_CLIP_EPS"] else config["CLIP_EPS"]
 
     # env = FlattenObservationWrapper(env) # NOTE need a batchify wrapper
     env = MPELogWrapper(env)
@@ -159,13 +275,11 @@ def make_train(config):
         init_x = (
             jnp.zeros((1, config["NUM_ENVS"], env.observation_space(env.agents[0]).shape[0])),
             jnp.zeros((1, config["NUM_ENVS"])),
-            jnp.zeros((1, config["NUM_ENVS"], env.action_space(env.agents[0]).n)),
         )
         init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], 128)
         actor_network_params = actor_network.init(_rng_actor, init_hstate, init_x)
         
-        init_x = jnp.zeros((env.state_size,))
-        #print('critic initial', init_x.shape)
+        init_x = jnp.zeros((env.world_state_size(),))  #  + env.observation_space(env.agents[0]).shape[0]
         critic_network_params = critic_network.init(_rng_critic, init_x)
         
         if config["ANNEAL_LR"]:
@@ -210,16 +324,13 @@ def make_train(config):
                 train_states, env_state, last_obs, last_done, hstate, rng = runner_state
 
                 # SELECT ACTION
+                # NOTE avail actions not used, could be removed.
                 rng, _rng = jax.random.split(rng)
-                avail_actions = jax.vmap(env.get_avail_actions)(env_state.env_state)
-                avail_actions = jax.lax.stop_gradient(
-                    batchify(avail_actions, env.agents, config["NUM_ACTORS"])
-                )
+
                 obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
                 ac_in = (
                     obs_batch[np.newaxis, :],
                     last_done[np.newaxis, :],
-                    avail_actions,
                 )
                 hstate, pi = actor_network.apply(train_states[0].params, hstate, ac_in)
                 action = pi.sample(seed=_rng)
@@ -230,11 +341,10 @@ def make_train(config):
                 env_act = {k: v.squeeze() for k, v in env_act.items()}
 
                 # VALUE
-                #print('world state shape', last_obs["world_state"].shape)
                 #world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
                 #world_state = jnp.repeat(world_state, env.num_agents, axis=1) 
                 world_state = last_obs["world_state"].reshape((config["NUM_ACTORS"],-1))
-                #print('world state shape', world_state.shape)
+                #world_state = jnp.concatenate((obs_batch, world_state), axis=1)
                 value = critic_network.apply(train_states[1].params, world_state)
 
                 # STEP ENV
@@ -255,7 +365,6 @@ def make_train(config):
                     obs_batch,
                     world_state,
                     info,
-                    avail_actions,
                 )
                 runner_state = (train_states, env_state, obsv, done_batch, hstate, rng)
                 return runner_state, transition
@@ -267,20 +376,11 @@ def make_train(config):
 
             # CALCULATE ADVANTAGE
             train_states, env_state, last_obs, last_done, hstate, rng = runner_state
-            last_obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
-            avail_actions = jnp.ones(
-                (config["NUM_ACTORS"], env.action_space(env.agents[0]).n)
-            )
-            '''ac_in = (
-                last_obs_batch[np.newaxis, :],
-                last_done[np.newaxis, :],
-                avail_actions,
-            )
-            _, _, last_val = network.apply(train_state.params, hstate, ac_in)
-            last_val = last_val.squeeze()'''
+      
             #last_world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
             #last_world_state = jnp.repeat(last_world_state, env.num_agents, axis=1)  
             last_world_state = last_obs["world_state"].reshape((config["NUM_ACTORS"],-1))
+            #last_world_state = jnp.concatenate((last_obs_batch, last_world_state), axis=1)
             last_val = critic_network.apply(train_states[1].params, last_world_state).squeeze()
 
             def _calculate_gae(traj_batch, last_val):
@@ -320,7 +420,7 @@ def make_train(config):
                         _, pi = actor_network.apply(
                             actor_params,
                             init_hstate.transpose(),
-                            (traj_batch.obs, traj_batch.done, traj_batch.avail_actions),
+                            (traj_batch.obs, traj_batch.done),
                         )
                         log_prob = pi.log_prob(traj_batch.action)
 
@@ -339,7 +439,6 @@ def make_train(config):
                         loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
                         loss_actor = loss_actor.mean(where=(1 - traj_batch.done))
                         entropy = pi.entropy().mean(where=(1 - traj_batch.done))
-
                         actor_loss = (
                             loss_actor
                             #+ config["VF_COEF"] * value_loss
@@ -375,9 +474,15 @@ def make_train(config):
                     actor_train_state = actor_train_state.apply_gradients(grads=actor_grads)
                     critic_train_state = critic_train_state.apply_gradients(grads=critic_grads)
                     
-                    total_loss = actor_loss + critic_loss
+                    total_loss = actor_loss[0] + critic_loss[0]
+                    loss_info = {
+                        "total_loss": total_loss,
+                        "actor_loss": actor_loss[0],
+                        "critic_loss": critic_loss[0],
+                        "entropy": actor_loss[1][1],
+                    }
                     
-                    return (actor_train_state, critic_train_state), total_loss
+                    return (actor_train_state, critic_train_state), loss_info
 
                 (
                     train_states,
@@ -418,7 +523,7 @@ def make_train(config):
                 )
 
                 #train_states = (actor_train_state, critic_train_state)
-                train_states, total_loss = jax.lax.scan(
+                train_states, loss_info = jax.lax.scan(
                     _update_minbatch, train_states, minibatches
                 )
                 update_state = (
@@ -429,7 +534,7 @@ def make_train(config):
                     targets,
                     rng,
                 )
-                return update_state, total_loss
+                return update_state, loss_info
 
             init_hstate = initial_hstate[None, :].squeeze().transpose()
             update_state = (
@@ -443,11 +548,14 @@ def make_train(config):
             update_state, loss_info = jax.lax.scan(
                 _update_epoch, update_state, None, config["UPDATE_EPOCHS"]
             )
+            loss_info = jax.tree_map(lambda x: x.mean(), loss_info)
+            
             train_states = update_state[0]
             metric = traj_batch.info
             rng = update_state[-1]
 
             metric = {k: v.mean() for k, v in metric.items()}
+            metric = {**metric, **loss_info}
             runner_state = (train_states, env_state, last_obs, last_done, hstate, rng)
             return runner_state, metric
 
@@ -480,14 +588,23 @@ def main(config):
     )
     rng = jax.random.PRNGKey(config["SEED"])
     with jax.disable_jit(config["DISABLE_JIT"]):
-        train_jit = jax.jit(make_train(config), device=jax.devices()[0])
+        train_jit = jax.jit(make_train(config), device=jax.devices()[config["DEVICE"]])
         out = train_jit(rng)
+    
+    updates_x = jnp.arange(out["metrics"]["total_loss"].shape[0])
+    loss_table = jnp.stack([updates_x, out["metrics"]["total_loss"], out["metrics"]["actor_loss"], out["metrics"]["critic_loss"], out["metrics"]["entropy"]], axis=1)    
+    loss_table = wandb.Table(data=loss_table.tolist(), columns=["updates", "total_loss", "actor_loss", "critic_loss", "entropy"])
+    
     updates_x = jnp.arange(out["metrics"]["returned_episode_returns"].shape[0])
     returns_table = jnp.stack([updates_x, out["metrics"]["returned_episode_returns"]], axis=1)
     returns_table = wandb.Table(data=returns_table.tolist(), columns=["updates", "returns"])
     wandb.log({
         "returns_plot": wandb.plot.line(returns_table, "updates", "returns", title="returns_vs_updates"),
-        "returns": out["metrics"]["returned_episode_returns"].mean()
+        "returns": out["metrics"]["returned_episode_returns"].mean(),
+        "total_loss_plot": wandb.plot.line(loss_table, "updates", "total_loss", title="total_loss_vs_updates"),
+        "actor_loss_plot": wandb.plot.line(loss_table, "updates", "actor_loss", title="actor_loss_vs_updates"),
+        "critic_loss_plot": wandb.plot.line(loss_table, "updates", "critic_loss", title="critic_loss_vs_updates"),
+        "entropy_plot": wandb.plot.line(loss_table, "updates", "entropy", title="entropy_vs_updates"),
     })
 
     

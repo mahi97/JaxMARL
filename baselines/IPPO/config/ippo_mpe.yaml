@@ -1,0 +1,23 @@
+"LR": 5e-4
+"NUM_ENVS": 16
+"NUM_STEPS": 128
+"TOTAL_TIMESTEPS": 2e6
+"UPDATE_EPOCHS": 4
+"NUM_MINIBATCHES": 2
+"GAMMA": 0.99
+"GAE_LAMBDA": 0.95
+"CLIP_EPS": 0.3
+"ENT_COEF": 0.01
+"VF_COEF": 1.0
+"MAX_GRAD_NORM": 0.5
+"ACTIVATION": "tanh"
+"ENV_NAME": "MPE_simple_spread_v3" # Q: Do the versions correspond to internal or external?
+"ENV_KWARGS": {}
+"ANNEAL_LR": True
+"DISABLE_JIT": False
+"SEED": 20
+"DEVICE": 0
+
+"WANDB_MODE": "online"
+"ENTITY": "amacrutherford"
+"PROJECT": "mpe-rnn"

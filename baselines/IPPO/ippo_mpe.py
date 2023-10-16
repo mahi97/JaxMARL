@@ -2,6 +2,10 @@
 Based on PureJaxRL Implementation of PPO
 
 NOTE: currently implemented using the gymnax to smax wrapper
+
+TODO:
+ - fix the env to return the correct rewards
+
 """
 
 import jax
@@ -10,12 +14,85 @@ import flax.linen as nn
 import numpy as np
 import optax
 from flax.linen.initializers import constant, orthogonal
-from typing import Sequence, NamedTuple, Any
+from typing import Sequence, NamedTuple, Any, Tuple, Union
 from flax.training.train_state import TrainState
+from flax import struct
 import distrax
 import smax
-from smax.wrappers.smaxbaselines import LogWrapper
-import matplotlib.pyplot as plt
+import hydra 
+from omegaconf import OmegaConf
+import wandb
+from smax.wrappers.smaxbaselines import SMAXWrapper
+from smax.environments.multi_agent_env import MultiAgentEnv, State
+import chex 
+
+from functools import partial
+
+@struct.dataclass
+class LogEnvState:
+    env_state: State
+    episode_returns: float
+    episode_lengths: int
+    returned_episode_returns: float
+    returned_episode_lengths: int
+
+
+class LogWrapper(SMAXWrapper):
+    """Log the episode returns and lengths.
+    NOTE for now for envs where agents terminate at the same time.
+    """
+
+    def __init__(self, env: MultiAgentEnv, replace_info: bool = False):
+        super().__init__(env)
+        self.replace_info = replace_info
+
+    @partial(jax.jit, static_argnums=(0,))
+    def reset(self, key: chex.PRNGKey) -> Tuple[chex.Array, State]:
+        obs, env_state = self._env.reset(key)
+        state = LogEnvState(
+            env_state,
+            jnp.zeros((self._env.num_agents,)),
+            jnp.zeros((self._env.num_agents,)),
+            jnp.zeros((self._env.num_agents,)),
+            jnp.zeros((self._env.num_agents,)),
+        )
+        return obs, state
+    
+    def add_reward_for_env(self, rewards):
+        #print('rewards',rewards)
+        rew = jnp.sum(jnp.array([rewards[a] for a in self._env.agents]), axis=-1)
+        #print('rew', rew.shape)
+        return rew
+
+    @partial(jax.jit, static_argnums=(0,))
+    def step(
+        self,
+        key: chex.PRNGKey,
+        state: LogEnvState,
+        action: Union[int, float],
+    ) -> Tuple[chex.Array, LogEnvState, float, bool, dict]:
+        obs, env_state, reward, done, info = self._env.step(
+            key, state.env_state, action
+        )
+        ep_done = done["__all__"]
+        rew = jnp.sum(self._batchify_floats(reward), axis=-1)
+        new_episode_return = state.episode_returns + rew
+        new_episode_length = state.episode_lengths + 1
+        state = LogEnvState(
+            env_state=env_state,
+            episode_returns=new_episode_return * (1 - ep_done),
+            episode_lengths=new_episode_length * (1 - ep_done),
+            returned_episode_returns=state.returned_episode_returns * (1 - ep_done)
+            + new_episode_return * ep_done,
+            returned_episode_lengths=state.returned_episode_lengths * (1 - ep_done)
+            + new_episode_length * ep_done,
+        )
+        if self.replace_info:
+            info = {}
+        info["returned_episode_returns"] = state.returned_episode_returns
+        info["returned_episode_lengths"] = state.returned_episode_lengths
+        info["returned_episode"] = jnp.full((self._env.num_agents,), ep_done)
+        return obs, state, reward, done, info
 
 class ActorCritic(nn.Module):
     action_dim: Sequence[int]
@@ -228,6 +305,8 @@ def make_train(config):
                             + config["VF_COEF"] * value_loss
                             - config["ENT_COEF"] * entropy
                         )
+                        
+                        
                         return total_loss, (value_loss, loss_actor, entropy)
 
                     grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
@@ -235,7 +314,13 @@ def make_train(config):
                         train_state.params, traj_batch, advantages, targets
                     )
                     train_state = train_state.apply_gradients(grads=grads)
-                    return train_state, total_loss
+                    loss_info = {
+                        "total_loss": total_loss[0],
+                        "actor_loss": total_loss[1][1],
+                        "critic_loss": total_loss[1][0],
+                        "entropy": total_loss[1][2],
+                    }
+                    return train_state, loss_info
 
                 train_state, traj_batch, advantages, targets, rng = update_state
                 rng, _rng = jax.random.split(rng)
@@ -257,18 +342,21 @@ def make_train(config):
                     ),
                     shuffled_batch,
                 )
-                train_state, total_loss = jax.lax.scan(
+                train_state, loss_info = jax.lax.scan(
                     _update_minbatch, train_state, minibatches
                 )
                 update_state = (train_state, traj_batch, advantages, targets, rng)
-                return update_state, total_loss
+                return update_state, loss_info
 
             update_state = (train_state, traj_batch, advantages, targets, rng)
             update_state, loss_info = jax.lax.scan(
                 _update_epoch, update_state, None, config["UPDATE_EPOCHS"]
             )
+            loss_info = jax.tree_map(lambda x: x.mean(), loss_info)
             train_state = update_state[0]
             metric = traj_batch.info
+            metric = {k: v.mean() for k, v in metric.items()}
+            metric = {**metric, **loss_info}
             rng = update_state[-1]
             
             runner_state = (train_state, env_state, last_obs, rng)
@@ -283,27 +371,36 @@ def make_train(config):
 
     return train
 
+@hydra.main(version_base=None, config_path="config", config_name="ippo_mpe")
+def main(config):
+    config = OmegaConf.to_container(config)
+    wandb.init(
+        entity=config["ENTITY"],
+        project=config["PROJECT"],
+        tags=["MAPPO", "RNN"],
+        config=config,
+        mode=config["WANDB_MODE"],
+    )
+    rng = jax.random.PRNGKey(config["SEED"])
+    with jax.disable_jit(config["DISABLE_JIT"]):
+        train_jit = jax.jit(make_train(config), device=jax.devices()[config["DEVICE"]])
+        out = train_jit(rng)
+    
+    updates_x = jnp.arange(out["metrics"]["total_loss"].shape[0])
+    loss_table = jnp.stack([updates_x, out["metrics"]["total_loss"], out["metrics"]["actor_loss"], out["metrics"]["critic_loss"], out["metrics"]["entropy"]], axis=1)    
+    loss_table = wandb.Table(data=loss_table.tolist(), columns=["updates", "total_loss", "actor_loss", "critic_loss", "entropy"])
+    print('ret ep shape', out["metrics"]["returned_episode_returns"].shape)
+    updates_x = jnp.arange(out["metrics"]["returned_episode_returns"].shape[0])
+    returns_table = jnp.stack([updates_x, out["metrics"]["returned_episode_returns"]], axis=1)
+    returns_table = wandb.Table(data=returns_table.tolist(), columns=["updates", "returns"])
+    wandb.log({
+        "returns_plot": wandb.plot.line(returns_table, "updates", "returns", title="returns_vs_updates"),
+        "returns": out["metrics"]["returned_episode_returns"],
+        "total_loss_plot": wandb.plot.line(loss_table, "updates", "total_loss", title="total_loss_vs_updates"),
+        "actor_loss_plot": wandb.plot.line(loss_table, "updates", "actor_loss", title="actor_loss_vs_updates"),
+        "critic_loss_plot": wandb.plot.line(loss_table, "updates", "critic_loss", title="critic_loss_vs_updates"),
+        "entropy_plot": wandb.plot.line(loss_table, "updates", "entropy", title="entropy_vs_updates"),
+    })
+    
 if __name__ == "__main__":
-    config = {
-        "LR": 2.5e-4,
-        "NUM_ENVS": 16,
-        "NUM_STEPS": 128,
-        "TOTAL_TIMESTEPS": 5e6,
-        "UPDATE_EPOCHS": 4,
-        "NUM_MINIBATCHES": 4,
-        "GAMMA": 0.99,
-        "GAE_LAMBDA": 0.95,
-        "CLIP_EPS": 0.2,
-        "ENT_COEF": 0.01,
-        "VF_COEF": 0.5,
-        "MAX_GRAD_NORM": 0.5,
-        "ACTIVATION": "tanh",
-        "ENV_NAME": "MPE_simple_spread_v3", # Q: Do the versions correspond to internal or external?
-        "ENV_KWARGS": {},
-        "ANNEAL_LR": True,
-    }
-
-    rng = jax.random.PRNGKey(30)
-    train_jit = jax.jit(make_train(config))
-    out = train_jit(rng)
-    import pdb; pdb.set_trace()
+    main()
