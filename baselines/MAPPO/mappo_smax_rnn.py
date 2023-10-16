@@ -342,7 +342,6 @@ def make_train(config):
                         loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
                         loss_actor = loss_actor.mean(where=(1 - traj_batch.done))
                         entropy = pi.entropy().mean(where=(1 - traj_batch.done))
-
                         actor_loss = (
                             loss_actor
                             #+ config["VF_COEF"] * value_loss
@@ -378,9 +377,15 @@ def make_train(config):
                     actor_train_state = actor_train_state.apply_gradients(grads=actor_grads)
                     critic_train_state = critic_train_state.apply_gradients(grads=critic_grads)
                     
-                    total_loss = actor_loss + critic_loss
+                    total_loss = actor_loss[0] + critic_loss[0]
+                    loss_info = {
+                        "total_loss": total_loss,
+                        "actor_loss": actor_loss[0],
+                        "critic_loss": critic_loss[0],
+                        "entropy": actor_loss[1][1],
+                    }
                     
-                    return (actor_train_state, critic_train_state), total_loss
+                    return (actor_train_state, critic_train_state), loss_info
 
                 (
                     train_states,
@@ -421,7 +426,7 @@ def make_train(config):
                 )
 
                 #train_states = (actor_train_state, critic_train_state)
-                train_states, total_loss = jax.lax.scan(
+                train_states, loss_info = jax.lax.scan(
                     _update_minbatch, train_states, minibatches
                 )
                 update_state = (
@@ -432,7 +437,7 @@ def make_train(config):
                     targets,
                     rng,
                 )
-                return update_state, total_loss
+                return update_state, loss_info
 
             init_hstate = initial_hstate[None, :].squeeze().transpose()
             update_state = (
@@ -446,11 +451,14 @@ def make_train(config):
             update_state, loss_info = jax.lax.scan(
                 _update_epoch, update_state, None, config["UPDATE_EPOCHS"]
             )
+            loss_info = jax.tree_map(lambda x: x.mean(), loss_info)
+            
             train_states = update_state[0]
             metric = traj_batch.info
             rng = update_state[-1]
 
             metric = {k: v.mean() for k, v in metric.items()}
+            metric = {**metric, **loss_info}
             runner_state = (train_states, env_state, last_obs, last_done, hstate, rng)
             return runner_state, metric
 
@@ -485,6 +493,11 @@ def main(config):
     with jax.disable_jit(config["DISABLE_JIT"]):
         train_jit = jax.jit(make_train(config), device=jax.devices()[config["DEVICE"]])
         out = train_jit(rng)
+    
+    updates_x = jnp.arange(out["metrics"]["total_loss"].shape[0])
+    loss_table = jnp.stack([updates_x, out["metrics"]["total_loss"], out["metrics"]["actor_loss"], out["metrics"]["critic_loss"], out["metrics"]["entropy"]], axis=1)    
+    loss_table = wandb.Table(data=loss_table.tolist(), columns=["updates", "total_loss", "actor_loss", "critic_loss", "entropy"])
+    
     updates_x = jnp.arange(out["metrics"]["returned_episode_returns"].shape[0])
     returns_table = jnp.stack([updates_x, out["metrics"]["returned_episode_returns"]], axis=1)
     returns_table = wandb.Table(data=returns_table.tolist(), columns=["updates", "returns"])
@@ -494,7 +507,11 @@ def main(config):
         "returns_plot": wandb.plot.line(returns_table, "updates", "returns", title="returns_vs_updates"),
         "win_rate_plot": wandb.plot.line(win_rate_table, "updates", "win_rate", title="win_rate_vs_updates"),
         "win_rate": out["metrics"]["win_rate"].mean(),
-        "returns": out["metrics"]["returned_episode_returns"].mean()
+        "returns": out["metrics"]["returned_episode_returns"].mean(),
+        "total_loss_plot": wandb.plot.line(loss_table, "updates", "total_loss", title="total_loss_vs_updates"),
+        "actor_loss_plot": wandb.plot.line(loss_table, "updates", "actor_loss", title="actor_loss_vs_updates"),
+        "critic_loss_plot": wandb.plot.line(loss_table, "updates", "critic_loss", title="critic_loss_vs_updates"),
+        "entropy_plot": wandb.plot.line(loss_table, "updates", "entropy", title="entropy_vs_updates"),
     })
 
     
