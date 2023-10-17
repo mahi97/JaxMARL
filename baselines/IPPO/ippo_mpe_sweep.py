@@ -144,8 +144,8 @@ class Transition(NamedTuple):
 
 def batchify(x: dict, agent_list, num_actors):
     max_dim = max([x[a].shape[-1] for a in agent_list])
-    def pad(z):
-        return jnp.concatenate([z, jnp.zeros(list(z.shape[:-1]) + [max_dim - z.shape[-1]])], -1)
+    def pad(z, length):
+        return jnp.concatenate([z, jnp.zeros(z.shape[:-1] + [length - z.shape[-1]])], -1)
 
     x = jnp.stack([x[a] if x[a].shape[-1] == max_dim else pad(x[a]) for a in agent_list])
     return x.reshape((num_actors, -1))
@@ -175,7 +175,7 @@ def make_train(config):
         # INIT NETWORK
         network = ActorCritic(env.action_space(env.agents[0]).n, activation=config["ACTIVATION"])
         rng, _rng = jax.random.split(rng)
-        init_x = jnp.zeros(max([env.observation_space(a).shape for a in env.agents]))
+        init_x = jnp.zeros(env.observation_space(env.agents[0]).shape)
         network_params = network.init(_rng, init_x)
         if config["ANNEAL_LR"]:
             tx = optax.chain(
@@ -373,7 +373,7 @@ def make_train(config):
 
     return train
 
-@hydra.main(version_base=None, config_path="config", config_name="ippo_mpe_speaker")
+@hydra.main(version_base=None, config_path="config", config_name="ippo_mpe")
 def main(config):
     config = OmegaConf.to_container(config)
     wandb.init(
@@ -406,7 +406,7 @@ def main(config):
 
     #params = wandb.Artifact("params", type="model")
     params = flatten_dict(out["runner_state"][0].params, sep=',')
-    save_file(params, f"baselines/IPPO/checkpoints/ippo_{config['ENV_NAME']}_params.safetensors")
+    save_file(params, "baselines/IPPO/checkpoints/ippo_mpe_params.safetensors")
 
     
 if __name__ == "__main__":
