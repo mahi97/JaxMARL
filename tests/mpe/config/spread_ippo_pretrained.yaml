@@ -1,0 +1,9 @@
+"ENV_NAME": "MPE_simple_spread_v3"
+"ENV_KWARGS": {}
+"SEED": 20
+"DEVICE": 0
+"ACTIVATION": "tanh"
+
+"WANDB_MODE": "online"
+"ENTITY": "amacrutherford"
+"PROJECT": "mpe-rnn"
