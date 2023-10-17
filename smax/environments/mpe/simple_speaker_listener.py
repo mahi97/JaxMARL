@@ -136,6 +136,7 @@ class SimpleSpeakerListenerMPE(SimpleMPE):
         a_idx: int,
         action: chex.Array,
     ) -> Tuple[chex.Array, chex.Array]:
+        action = jax.tree_map(lambda x: jnp.squeeze(x), action)
         u = jnp.zeros((self.num_agents, self.dim_p))
         c = jnp.zeros((self.num_agents, self.dim_c))
 
