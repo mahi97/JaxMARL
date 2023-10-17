@@ -85,7 +85,7 @@ class MPELogWrapper(MPEWrapper):
         ep_done = done["__all__"]
         #batch_reward = self._batchify_floats(reward)
         #print('batch reward', batch_reward.shape)
-        new_episode_return = state.episode_returns + jnp.sum(self._batchify_floats(reward))  # NOTE this is wrong
+        new_episode_return = state.episode_returns + jnp.sum(self._batchify_floats(reward), axis=-1)
         new_episode_length = state.episode_lengths + 1
         state = MPELogEnvState(
             env_state=env_state,
@@ -243,8 +243,6 @@ def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
 
 
 def make_train(config):
-    # env, env_params = smax.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-    # env = GymnaxToSMAX(config["ENV_NAME"], **config["ENV_KWARGS"])
     env = smax.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (
@@ -582,21 +580,22 @@ def main(config):
     wandb.init(
         entity=config["ENTITY"],
         project=config["PROJECT"],
-        tags=["MAPPO", "RNN"],
+        tags=["MAPPO", "RNN", "IPPO-OBS", config["ENV_NAME"]],
         config=config,
         mode=config["WANDB_MODE"],
     )
     rng = jax.random.PRNGKey(config["SEED"])
+    rngs = jax.random.split(rng, config["NUM_SEEDS"])
     with jax.disable_jit(config["DISABLE_JIT"]):
         train_jit = jax.jit(make_train(config), device=jax.devices()[config["DEVICE"]])
-        out = train_jit(rng)
+        out = jax.vmap(train_jit)(rngs)
     
-    updates_x = jnp.arange(out["metrics"]["total_loss"].shape[0])
-    loss_table = jnp.stack([updates_x, out["metrics"]["total_loss"], out["metrics"]["actor_loss"], out["metrics"]["critic_loss"], out["metrics"]["entropy"]], axis=1)    
+    updates_x = jnp.arange(out["metrics"]["total_loss"][0].shape[0])
+    loss_table = jnp.stack([updates_x, out["metrics"]["total_loss"].mean(axis=0), out["metrics"]["actor_loss"].mean(axis=0), out["metrics"]["critic_loss"].mean(axis=0), out["metrics"]["entropy"].mean(axis=0)], axis=1)    
     loss_table = wandb.Table(data=loss_table.tolist(), columns=["updates", "total_loss", "actor_loss", "critic_loss", "entropy"])
     
-    updates_x = jnp.arange(out["metrics"]["returned_episode_returns"].shape[0])
-    returns_table = jnp.stack([updates_x, out["metrics"]["returned_episode_returns"]], axis=1)
+    updates_x = jnp.arange(out["metrics"]["returned_episode_returns"][0].shape[0])
+    returns_table = jnp.stack([updates_x, out["metrics"]["returned_episode_returns"].mean(axis=0)], axis=1)
     returns_table = wandb.Table(data=returns_table.tolist(), columns=["updates", "returns"])
     wandb.log({
         "returns_plot": wandb.plot.line(returns_table, "updates", "returns", title="returns_vs_updates"),

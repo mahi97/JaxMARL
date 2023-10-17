@@ -1,7 +1,7 @@
 "LR": 4e-3
-"NUM_ENVS": 64
+"NUM_ENVS": 32 # must be a multiple of 8
 "NUM_STEPS": 128
-"TOTAL_TIMESTEPS": 1e6
+"TOTAL_TIMESTEPS": 2e6
 "UPDATE_EPOCHS": 4
 "NUM_MINIBATCHES": 4
 "GAMMA": 0.99
@@ -14,6 +14,7 @@
 "ACTIVATION": "relu"
 "ENV_NAME": "MPE_simple_spread_v3"
 "SEED": 30
+"NUM_SEEDS": 30
 "ENV_KWARGS": {}
 
 
