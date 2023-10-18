@@ -373,31 +373,32 @@ def make_train(config):
 
     return train
 
-@hydra.main(version_base=None, config_path="config", config_name="ippo_mpe_speaker")
+@hydra.main(version_base=None, config_path="config", config_name="ippo_mpe_spread")
 def main(config):
     config = OmegaConf.to_container(config)
     wandb.init(
-        entity=config["ENTITY"],
+        entity=config["ENTITY"], 
         project=config["PROJECT"],
-        tags=["MAPPO", "RNN"],
+        tags=["IPPO", "FF", config["ENV_NAME"]],
         config=config,
         mode=config["WANDB_MODE"],
     )
     rng = jax.random.PRNGKey(config["SEED"])
+    rngs = jax.random.split(rng, config["NUM_SEEDS"])
     with jax.disable_jit(config["DISABLE_JIT"]):
         train_jit = jax.jit(make_train(config), device=jax.devices()[config["DEVICE"]])
-        out = train_jit(rng)
+        out = jax.vmap(train_jit)(rngs)
     
-    updates_x = jnp.arange(out["metrics"]["total_loss"].shape[0])
-    loss_table = jnp.stack([updates_x, out["metrics"]["total_loss"], out["metrics"]["actor_loss"], out["metrics"]["critic_loss"], out["metrics"]["entropy"]], axis=1)    
+    updates_x = jnp.arange(out["metrics"]["total_loss"][0].shape[0])
+    loss_table = jnp.stack([updates_x, out["metrics"]["total_loss"].mean(axis=0), out["metrics"]["actor_loss"].mean(axis=0), out["metrics"]["critic_loss"].mean(axis=0), out["metrics"]["entropy"].mean(axis=0)], axis=1)    
     loss_table = wandb.Table(data=loss_table.tolist(), columns=["updates", "total_loss", "actor_loss", "critic_loss", "entropy"])
     print('ret ep shape', out["metrics"]["returned_episode_returns"].shape)
-    updates_x = jnp.arange(out["metrics"]["returned_episode_returns"].shape[0])
-    returns_table = jnp.stack([updates_x, out["metrics"]["returned_episode_returns"]], axis=1)
+    updates_x = jnp.arange(out["metrics"]["returned_episode_returns"][0].shape[0])
+    returns_table = jnp.stack([updates_x, out["metrics"]["returned_episode_returns"].mean(axis=0)], axis=1)
     returns_table = wandb.Table(data=returns_table.tolist(), columns=["updates", "returns"])
     wandb.log({
         "returns_plot": wandb.plot.line(returns_table, "updates", "returns", title="returns_vs_updates"),
-        "returns": out["metrics"]["returned_episode_returns"],
+        "returns": out["metrics"]["returned_episode_returns"][:,-1].mean(),
         "total_loss_plot": wandb.plot.line(loss_table, "updates", "total_loss", title="total_loss_vs_updates"),
         "actor_loss_plot": wandb.plot.line(loss_table, "updates", "actor_loss", title="actor_loss_vs_updates"),
         "critic_loss_plot": wandb.plot.line(loss_table, "updates", "critic_loss", title="critic_loss_vs_updates"),

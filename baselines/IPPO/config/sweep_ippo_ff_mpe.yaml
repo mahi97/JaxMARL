@@ -1,5 +1,6 @@
+"program": "ippo_mpe.py"
 "method": "random"
-"metric": {"goal": "maximize", "name": "return"}
+"metric": {"goal": "maximize", "name": "returns"}
 "parameters": {
     "LR": {"values": [1.0e-5, 1.0e-4, 2.5e-3, 1.0e-3]},
     "NUM_ENVS": {"values": [16, 32, 64, 128]},
@@ -13,3 +14,8 @@
     "MAX_GRAD_NORM": {"values": [0.1, 0.5, 1.0]},
     "ACTIVATION": {"values": ["tanh", "relu"]},
 }
+
+"command":  
+  - python 
+  - ${program}
+  - ${args_no_hyphens}
