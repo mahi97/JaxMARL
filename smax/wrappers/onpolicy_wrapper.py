@@ -16,7 +16,7 @@ def MPEEnv(args,):
     if args.n_rollout_threads==1:
         return SingleOnPolicyMPE(rng, env)
     else:
-        return VecOnPolicy(rng, env, args.n_rollout_threads)
+        return VecOnPolicyMPE(rng, env, args.n_rollout_threads)
 
 class SingleOnPolicyMPE:
     
@@ -77,7 +77,7 @@ class SingleOnPolicyMPE:
         pass
 
 
-class VecOnPolicy(SingleOnPolicyMPE):
+class VecOnPolicyMPE(SingleOnPolicyMPE):
     
     def __init__(self,
                  rng,
@@ -99,8 +99,16 @@ class VecOnPolicy(SingleOnPolicyMPE):
         return self._batchify(obs).swapaxes(0,1)
         
     def step(self, action_n):
-        print('act', jnp.shape(action_n))
-        acts = self._unbatchify(action_n.swapaxes(0,1))
+        #print('act', jnp.shape(action_n))
+        #print('act', action_n)
+        acts = jnp.expand_dims(jnp.argmax(action_n, axis=-1), -1)
+        #print('argmax', acts.shape, acts)
+        #print('shape', acts[:,:, None].shape)
+        acts = self._unbatchify(acts.swapaxes(0,1))
+        #print('acts', acts)
+        # turn into 1d actions 
+        #acts = jax.tree_map(lambda x: jnp.argwhere(x==1, size=1).swapaxes(0,1), acts)
+        #print('acts', acts)
         
         self.rng, _rng = jax.random.split(self.rng)
         _rng = jax.random.split(_rng, self.num_envs)
@@ -108,7 +116,9 @@ class VecOnPolicy(SingleOnPolicyMPE):
             
         rew = self._batchify(rew).swapaxes(0,1)[:,:,None]*self.n
         
-        info = {a: {'individual_reward': rew[:,a].squeeze()} for a in range(self.n)}
+        #info = {a: {'individual_reward': rew[:,a].squeeze()} for a in range(self.n)}
+        #print('info', info)
+        info = [[{'individual_reward': rew[i, a]} for a in range(self.n)] for i in range(self.num_envs)]
         
         return self._batchify(obs).swapaxes(0, 1), rew, self._batchify(done).swapaxes(0, 1), info
     
@@ -126,7 +136,7 @@ if __name__=="__main__":
     if num_envs == 1:
         env = SingleOnPolicyMPE(rng, env)
     else:
-        env = VecOnPolicy(rng, env, num_envs)
+        env = VecOnPolicyMPE(rng, env, num_envs)
     
     obs = env.reset()
     print(obs)
