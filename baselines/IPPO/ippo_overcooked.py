@@ -18,7 +18,6 @@ import distrax
 from gymnax.wrappers.purerl import LogWrapper, FlattenObservationWrapper
 import smax
 from smax.wrappers.smaxbaselines import LogWrapper
-from smax.wrappers.gymnax import GymnaxToSMAX
 from smax.environments.overcooked import overcooked_layouts
 from smax.viz.overcooked_visualizer import OvercookedVisualizer
 
