@@ -1,0 +1,23 @@
+"entity": "amacrutherford"
+"project": "mpe-rnn"
+"program": "mappo_mpe_rnn.py"
+"method": "random"
+"metric": {"goal": "maximize", "name": "returns"}
+"parameters": {
+    "LR": {"values": [1.0e-4, 2.0e-3, 8.0e-3]},
+    "NUM_ENVS": {"values": [64, 128]},
+    "NUM_STEPS": {"values": [128]},
+    "UPDATE_EPOCHS": {"values": [2, 4, 8]},
+    "NUM_MINIBATCHES": {"values": [2, 4, 8]},
+    "GAE_LAMBDA": {"values": [0.95, 0.99]},
+    "CLIP_EPS": {"values": [0.05, 0.1, 0.2]},
+    "ENT_COEF": {"values": [0.0, 0.05, 0.1]},
+    "VF_COEF": {"values": [0.1, 0.5, 1.0]},
+    "MAX_GRAD_NORM": {"values": [0.1, 0.5, 1.0]},
+    "ACTIVATION": {"values": ["tanh", "relu"]},
+}
+
+"command":  
+  - python3
+  - ${program}
+  - ${args_no_hyphens}

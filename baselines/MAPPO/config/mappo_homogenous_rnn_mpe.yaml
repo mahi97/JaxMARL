@@ -14,7 +14,7 @@
 "ACTIVATION": "relu"
 "ENV_NAME": "MPE_simple_spread_v3"
 "SEED": 30
-"NUM_SEEDS": 30
+"NUM_SEEDS": 10
 "ENV_KWARGS": {}
 
 

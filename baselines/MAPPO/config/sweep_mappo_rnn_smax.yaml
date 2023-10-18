@@ -23,7 +23,7 @@ parameters:
       - 128
   TOTAL_TIMESTEPS: 
     values: 
-      - 10000000
+      - 1e7
   UPDATE_EPOCHS: 
     values:
       - 2
@@ -62,9 +62,7 @@ parameters:
       - "HeuristicEnemyMiniSMAC"
   MAP_NAME: 
     values:
-      - "27m_vs_30m"
-      - "3s_vs_5z"
-      - "smacv2_20_units"
+      - "2s3z"
 
   ANNEAL_LR: 
     values:

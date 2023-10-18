@@ -135,14 +135,17 @@ class WorldStateWrapper(MPEWrapper):
             robs = robs.flatten()
             return robs
             
-        all_obs = jnp.array([obs[agent] for agent in self._env.agents])
+        all_obs = jnp.array([obs[agent] for agent in self._env.agents]).flatten()
+        #print('all obs shape', all_obs.shape)
+        all_obs = jnp.expand_dims(all_obs, axis=0).repeat(self._env.num_agents, axis=0)
+        #print('all obs shape', all_obs.shape)
         return all_obs
         #return _roll_obs(jnp.arange(self._env.num_agents), all_obs)
     
     def world_state_size(self):
         spaces = [self._env.observation_space(agent) for agent in self._env.agents]
-        return spaces[0].shape[-1]
-        #return sum([space.shape[-1] for space in spaces])
+        #return spaces[0].shape[-1]
+        return sum([space.shape[-1] for space in spaces])
 
 class ScannedRNN(nn.Module):
     @functools.partial(
@@ -577,17 +580,18 @@ def make_train(config):
 def main(config):
 
     config = OmegaConf.to_container(config)
+    jax.default_device(jax.devices()[config["DEVICE"]])
     wandb.init(
         entity=config["ENTITY"],
         project=config["PROJECT"],
-        tags=["MAPPO", "RNN", "IPPO-OBS", config["ENV_NAME"]],
+        tags=["MAPPO", "RNN", config["ENV_NAME"]],
         config=config,
         mode=config["WANDB_MODE"],
     )
     rng = jax.random.PRNGKey(config["SEED"])
     rngs = jax.random.split(rng, config["NUM_SEEDS"])
     with jax.disable_jit(config["DISABLE_JIT"]):
-        train_jit = jax.jit(make_train(config), device=jax.devices()[config["DEVICE"]])
+        train_jit = jax.jit(make_train(config)) #  device=jax.devices()[config["DEVICE"]]
         out = jax.vmap(train_jit)(rngs)
     
     updates_x = jnp.arange(out["metrics"]["total_loss"][0].shape[0])

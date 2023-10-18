@@ -171,7 +171,7 @@ def make_train(config):
         init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], 128)
         actor_network_params = actor_network.init(_rng_actor, init_hstate, init_x)
         
-        init_x = jnp.zeros((env.state_size,))  #  + env.observation_space(env.agents[0]).shape[0]
+        init_x = jnp.zeros((env.state_size + env.observation_space(env.agents[0]).shape[0],))
         critic_network_params = critic_network.init(_rng_critic, init_x)
         
         if config["ANNEAL_LR"]:
@@ -239,7 +239,7 @@ def make_train(config):
                 world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
                 world_state = jnp.repeat(world_state, env.num_agents, axis=1) 
                 world_state = world_state.reshape((config["NUM_ACTORS"],-1))
-                #world_state = jnp.concatenate((obs_batch, world_state), axis=1)
+                world_state = jnp.concatenate((obs_batch, world_state), axis=1)
                 value = critic_network.apply(train_states[1].params, world_state)
 
                 # STEP ENV
@@ -286,7 +286,7 @@ def make_train(config):
             last_world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
             last_world_state = jnp.repeat(last_world_state, env.num_agents, axis=1)  
             last_world_state = last_world_state.reshape((config["NUM_ACTORS"],-1))
-            #last_world_state = jnp.concatenate((last_obs_batch, last_world_state), axis=1)
+            last_world_state = jnp.concatenate((last_obs_batch, last_world_state), axis=1)
             last_val = critic_network.apply(train_states[1].params, last_world_state).squeeze()
 
             def _calculate_gae(traj_batch, last_val):
