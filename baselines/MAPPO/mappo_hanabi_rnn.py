@@ -24,7 +24,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from functools import partial
 import smax
-from smax.wrappers.smaxbaselines import LogWrapper, LogEnvState, SMAXWrapper
+from smax.wrappers.smaxbaselines import LogWrapper, SMAXWrapper
 from smax.environments.multi_agent_env import MultiAgentEnv, State
 
 
@@ -33,85 +33,6 @@ import wandb
 import functools
 import matplotlib.pyplot as plt
 
-class MPELogWrapper(LogWrapper):
-    """ Times reward signal by number of agents within the environment,
-    to match the on-policy codebase. """
-    
-    @partial(jax.jit, static_argnums=(0,))
-    def step(
-        self,
-        key: chex.PRNGKey,
-        state: LogEnvState,
-        action: Union[int, float],
-    ) -> Tuple[chex.Array, LogEnvState, float, bool, dict]:
-        obs, env_state, reward, done, info = self._env.step(
-            key, state.env_state, action
-        )
-        rewardlog = jax.tree_map(lambda x: x*self._env.num_agents, reward)  # As per on-policy codebase
-        ep_done = done["__all__"]
-        new_episode_return = state.episode_returns + self._batchify_floats(rewardlog)
-        new_episode_length = state.episode_lengths + 1
-        state = LogEnvState(
-            env_state=env_state,
-            episode_returns=new_episode_return * (1 - ep_done),
-            episode_lengths=new_episode_length * (1 - ep_done),
-            returned_episode_returns=state.returned_episode_returns * (1 - ep_done)
-            + new_episode_return * ep_done,
-            returned_episode_lengths=state.returned_episode_lengths * (1 - ep_done)
-            + new_episode_length * ep_done,
-        )
-        if self.replace_info:
-            info = {}
-        info["returned_episode_returns"] = state.returned_episode_returns
-        info["returned_episode_lengths"] = state.returned_episode_lengths
-        info["returned_episode"] = jnp.full((self._env.num_agents,), ep_done)
-        return obs, state, reward, done, info
-
-
-'''class MPELogWrapper(MPEWrapper):
-    def __init__(self, env: MultiAgentEnv, replace_info: bool = False):
-        super().__init__(env)
-        self.replace_info = replace_info
-
-    @partial(jax.jit, static_argnums=(0,))
-    def reset(self, key: chex.PRNGKey) -> Tuple[chex.Array, State]:
-        obs, env_state = self._env.reset(key)
-        state = MPELogEnvState(
-            env_state,
-            jnp.zeros((self._env.num_agents,)),
-            jnp.zeros((self._env.num_agents,)),
-            jnp.zeros((self._env.num_agents,)),
-            total_episodes=jnp.zeros((self._env.num_agents,)),
-        )
-        return obs, state
-
-    @partial(jax.jit, static_argnums=(0,))
-    def step(
-        self,
-        key: chex.PRNGKey,
-        state: MPELogEnvState,
-        action: Union[int, float],
-    ) -> Tuple[chex.Array, MPELogEnvState, float, bool, dict]:
-        obs, env_state, reward, done, info = self._env.step(
-            key, state.env_state, action
-        )
-        ep_done = done["__all__"]
-        new_episode_return = state.episode_returns + self._batchify_floats(reward)
-        new_episode_length = state.episode_lengths + 1
-        state = MPELogEnvState(
-            env_state=env_state,
-            episode_returns=new_episode_return * (1 - ep_done),
-            episode_lengths=new_episode_length * (1 - ep_done),
-            returned_episode_returns=state.returned_episode_returns * (1 - ep_done)
-            + new_episode_return * ep_done,
-            total_episodes=state.total_episodes + (ep_done).astype(jnp.int32),
-        )
-        if self.replace_info:
-            info = {}
-        info["returned_episode_returns"] = state.returned_episode_returns
-        #print(info["returned_episode_returns"])
-        info["returned_episode"] = jnp.full((self._env.num_agents,), ep_done)
-        return obs, state, reward, done, info'''
     
 class WorldStateWrapper(SMAXWrapper):
     
@@ -159,7 +80,7 @@ class WorldStateWrapper(SMAXWrapper):
     def world_state_size(self):
         spaces = [self._env.observation_space(agent) for agent in self._env.agents]
         #return spaces[0].shape[-1]
-        return sum([space.shape[-1] for space in spaces])
+        return sum([space.n for space in spaces])
 
 class ScannedRNN(nn.Module):
     @functools.partial(
@@ -272,7 +193,7 @@ def make_train(config):
 
     # env = FlattenObservationWrapper(env) # NOTE need a batchify wrapper
     env = WorldStateWrapper(env)
-    env = MPELogWrapper(env)
+    env = LogWrapper(env)
 
     def linear_schedule(count):
         frac = (
@@ -288,7 +209,7 @@ def make_train(config):
         critic_network = Critic()
         rng, _rng_actor, _rng_critic = jax.random.split(rng, 3)
         init_x = (
-            jnp.zeros((1, config["NUM_ENVS"], env.observation_space(env.agents[0]).shape[0])),
+            jnp.zeros((1, config["NUM_ENVS"], env.observation_space(env.agents[0]).n)),
             jnp.zeros((1, config["NUM_ENVS"])),
         )
         init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], 128)
@@ -353,7 +274,7 @@ def make_train(config):
                 env_act = unbatchify(
                     action, env.agents, config["NUM_ENVS"], env.num_agents
                 )
-                env_act = {k: v.squeeze() for k, v in env_act.items()}
+                #env_act = {k: v.squeeze() for k, v in env_act.items()}
 
                 # VALUE
                 #world_state = jnp.expand_dims(last_obs["world_state"], axis=1)
@@ -590,7 +511,7 @@ def make_train(config):
 
     return train
 
-@hydra.main(version_base=None, config_path="config", config_name="mappo_homogenous_rnn_mpe")
+@hydra.main(version_base=None, config_path="config", config_name="mappo_homogenous_rnn_hanabi")
 def main(config):
 
     config = OmegaConf.to_container(config)
